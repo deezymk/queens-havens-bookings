@@ -117,7 +117,7 @@ export default function BookingModal({ isOpen, onClose, initialService }: Bookin
 
       const { error: insertError } = await supabase.from('bookings').insert({
         name: form.name,
-        email: form.email,
+        email: form.email || null,
         phone: form.phone,
         service: form.service,
         preferred_date: form.date,
@@ -229,7 +229,7 @@ export default function BookingModal({ isOpen, onClose, initialService }: Bookin
               </Field>
             </div>
 
-            <Field label="Email Address" required>
+            <Field label="Email Address (optional)">
               <input
                 required
                 type="email"
