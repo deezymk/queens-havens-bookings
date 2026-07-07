@@ -115,21 +115,29 @@ export default function BookingModal({ isOpen, onClose, initialService }: Bookin
         inspoUrl = publicUrlData.publicUrl
       }
 
-      const { error: insertError } = await supabase.from('bookings').insert({
-        name: form.name,
-        email: form.email || null,
-        phone: form.phone,
-        service: form.service,
-        preferred_date: form.date,
-        preferred_time: form.time,
-        payment_method: form.paymentMethod,
-        notes: form.notes || null,
-        inspo_url: inspoUrl,
-      })
+      const bookingRecord = {
+  name: form.name,
+  email: form.email || null,
+  phone: form.phone,
+  service: form.service,
+  preferred_date: form.date,
+  preferred_time: form.time,
+  payment_method: form.paymentMethod,
+  notes: form.notes || null,
+  inspo_url: inspoUrl,
+}
 
-      if (insertError) throw insertError
+const { error: insertError } = await supabase.from('bookings').insert(bookingRecord)
 
-      setSubmitted(true)
+if (insertError) throw insertError
+
+// Notify the nail tech by email. Fire-and-forget: if this fails,
+// the booking itself is already saved successfully.
+supabase.functions
+  .invoke('notify-booking', { body: { record: bookingRecord } })
+  .catch((err) => console.error('notify-booking call failed:', err))
+
+setSubmitted(true)
     } catch (err) {
       console.error('Booking submission failed:', err)
       setErrorMsg(
@@ -231,7 +239,6 @@ export default function BookingModal({ isOpen, onClose, initialService }: Bookin
 
             <Field label="Email Address (optional)">
               <input
-                required
                 type="email"
                 value={form.email}
                 onChange={(e) => update('email', e.target.value)}
