@@ -134,7 +134,7 @@ if (insertError) throw insertError
 // Notify the nail tech by email. Fire-and-forget: if this fails,
 // the booking itself is already saved successfully.
 supabase.functions
-  .invoke('notify-booking', { body: { record: bookingRecord } })
+  .invoke('swift-action', { body: { record: bookingRecord } })
   .catch((err) => console.error('notify-booking call failed:', err))
 
 setSubmitted(true)
