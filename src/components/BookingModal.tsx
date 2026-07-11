@@ -97,21 +97,23 @@ export default function BookingModal({ isOpen, onClose, initialService }: Bookin
   }
 
   const finalizeBooking = async (depositReference: string) => {
+    const client = supabase
+
+    if (!client) {
+      throw new Error('Supabase is not configured.')
+    }
+
     let inspoUrl: string | null = null
 
     if (inspoFile) {
       const fileExt = inspoFile.name.split('.').pop()
       const filePath = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
 
-      const { error: uploadError } = await supabase.storage
-        .from(INSPO_BUCKET)
-        .upload(filePath, inspoFile)
+      const { error: uploadError } = await client.storage.from(INSPO_BUCKET).upload(filePath, inspoFile)
 
       if (uploadError) throw uploadError
 
-      const { data: publicUrlData } = supabase.storage
-        .from(INSPO_BUCKET)
-        .getPublicUrl(filePath)
+      const { data: publicUrlData } = client.storage.from(INSPO_BUCKET).getPublicUrl(filePath)
 
       inspoUrl = publicUrlData.publicUrl
     }
@@ -133,12 +135,11 @@ export default function BookingModal({ isOpen, onClose, initialService }: Bookin
       deposit_reference: depositReference,
     }
 
-    const { error: insertError } = await supabase.from('bookings').insert(bookingRecord)
+    const { error: insertError } = await client.from('bookings').insert(bookingRecord)
 
     if (insertError) throw insertError
 
-    
-    supabase.functions
+    client.functions
       .invoke('swift-action', { body: { record: bookingRecord } })
       .catch((err) => console.error('notify-booking call failed:', err))
 
