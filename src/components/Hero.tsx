@@ -23,7 +23,7 @@ export default function Hero({ onBookClick }: HeroProps) {
 
           <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl leading-[1.02] text-cream text-balance">
             Boldly <span className="italic text-gold-light">Beautiful,</span>
-            <br /> appointment by appointment.
+           
           </h1>
 
           <p className="mt-7 max-w-md text-muted text-base sm:text-lg leading-relaxed">
