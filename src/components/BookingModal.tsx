@@ -16,6 +16,10 @@ const PAYMENT_METHODS = [
   { value: 'cash', label: 'Cash on the Day' },
 ]
 
+
+const DEPOSIT_AMOUNT_PESEWAS = 5000
+const DEPOSIT_AMOUNT_LABEL = 'GH₵50'
+
 type BookingModalProps = {
   isOpen: boolean
   onClose: () => void
@@ -30,6 +34,9 @@ type FormState = {
   date: string
   time: string
   paymentMethod: string
+  momoNumber: string
+  bankName: string
+  accountNumber: string
   notes: string
 }
 
@@ -41,6 +48,9 @@ const EMPTY_FORM: FormState = {
   date: '',
   time: '',
   paymentMethod: '',
+  momoNumber: '',
+  bankName: '',
+  accountNumber: '',
   notes: '',
 }
 
@@ -86,68 +96,104 @@ export default function BookingModal({ isOpen, onClose, initialService }: Bookin
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const handleSubmit = async (e: FormEvent) => {
+  const finalizeBooking = async (depositReference: string) => {
+    let inspoUrl: string | null = null
+
+    if (inspoFile) {
+      const fileExt = inspoFile.name.split('.').pop()
+      const filePath = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
+
+      const { error: uploadError } = await supabase.storage
+        .from(INSPO_BUCKET)
+        .upload(filePath, inspoFile)
+
+      if (uploadError) throw uploadError
+
+      const { data: publicUrlData } = supabase.storage
+        .from(INSPO_BUCKET)
+        .getPublicUrl(filePath)
+
+      inspoUrl = publicUrlData.publicUrl
+    }
+
+    const bookingRecord = {
+      name: form.name,
+      email: form.email || null,
+      phone: form.phone,
+      service: form.service,
+      preferred_date: form.date,
+      preferred_time: form.time,
+      payment_method: form.paymentMethod,
+      momo_number: form.paymentMethod === 'momo' ? form.momoNumber : null,
+      bank_name: form.paymentMethod === 'bank' ? form.bankName : null,
+      account_number: form.paymentMethod === 'bank' ? form.accountNumber : null,
+      notes: form.notes || null,
+      inspo_url: inspoUrl,
+      deposit_paid: true,
+      deposit_reference: depositReference,
+    }
+
+    const { error: insertError } = await supabase.from('bookings').insert(bookingRecord)
+
+    if (insertError) throw insertError
+
+    
+    supabase.functions
+      .invoke('swift-action', { body: { record: bookingRecord } })
+      .catch((err) => console.error('notify-booking call failed:', err))
+
+    setSubmitted(true)
+  }
+
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     setErrorMsg(null)
     setSubmitting(true)
 
-    try {
-      if (!supabase) {
-        throw new Error('Supabase is not configured.')
-      }
+    
+    const paystackEmail =
+      form.email || `${form.phone.replace(/\D/g, '') || 'guest'}@guest.queenshaven.app`
 
-      let inspoUrl: string | null = null
+    const reference = `QH-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-      if (inspoFile) {
-        const fileExt = inspoFile.name.split('.').pop()
-        const filePath = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
+    const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
 
-        const { error: uploadError } = await supabase.storage
-          .from(INSPO_BUCKET)
-          .upload(filePath, inspoFile)
-
-        if (uploadError) throw uploadError
-
-        const { data: publicUrlData } = supabase.storage
-          .from(INSPO_BUCKET)
-          .getPublicUrl(filePath)
-
-        inspoUrl = publicUrlData.publicUrl
-      }
-
-      const bookingRecord = {
-  name: form.name,
-  email: form.email || null,
-  phone: form.phone,
-  service: form.service,
-  preferred_date: form.date,
-  preferred_time: form.time,
-  payment_method: form.paymentMethod,
-  notes: form.notes || null,
-  inspo_url: inspoUrl,
-}
-
-const { error: insertError } = await supabase.from('bookings').insert(bookingRecord)
-
-if (insertError) throw insertError
-
-// Notify the nail tech by email. Fire-and-forget: if this fails,
-// the booking itself is already saved successfully.
-supabase.functions
-  .invoke('swift-action', { body: { record: bookingRecord } })
-  .catch((err) => console.error('notify-booking call failed:', err))
-
-setSubmitted(true)
-    } catch (err) {
-      console.error('Booking submission failed:', err)
-      setErrorMsg(
-        err instanceof Error && err.message === 'Supabase is not configured.'
-          ? 'Bookings are currently unavailable until Supabase is configured.'
-          : "Something went wrong sending your booking. Please try again, or reach out on Instagram/TikTok directly.",
-      )
-    } finally {
+    if (!paystackKey) {
+      console.error('VITE_PAYSTACK_PUBLIC_KEY is not set.')
+      setErrorMsg('Payments are currently unavailable. Please try again shortly.')
       setSubmitting(false)
+      return
     }
+
+    const handler = PaystackPop.setup({
+      key: paystackKey,
+      email: paystackEmail,
+      amount: DEPOSIT_AMOUNT_PESEWAS,
+      currency: 'GHS',
+      ref: reference,
+      metadata: {
+        custom_fields: [
+          { display_name: 'Client Name', variable_name: 'client_name', value: form.name },
+          { display_name: 'Service', variable_name: 'service', value: form.service },
+        ],
+      },
+      callback: (response) => {
+        finalizeBooking(response.reference)
+          .catch((err) => {
+            console.error('Booking submission failed after payment:', err)
+            setErrorMsg(
+              'Your deposit went through, but saving your booking failed. Please contact us directly on Instagram/TikTok with your payment reference: ' +
+                response.reference,
+            )
+          })
+          .finally(() => setSubmitting(false))
+      },
+      onClose: () => {
+        setSubmitting(false)
+      },
+    })
+
+    handler.openIframe()
   }
 
   const handleClose = () => {
@@ -196,14 +242,19 @@ setSubmitted(true)
         {submitted ? (
           <div className="px-7 sm:px-9 pb-9 pt-4 flex flex-col items-center text-center gap-6">
             <p className="text-muted text-sm leading-relaxed max-w-sm">
-              Thank you, <span className="text-gold-light">{form.name || 'queen'}</span>. Your
-              request for <span className="text-cream">{form.service || 'a service'}</span> on{' '}
+              Thank you, <span className="text-gold-light">{form.name || 'queen'}</span>. Your{' '}
+              {DEPOSIT_AMOUNT_LABEL} deposit has been received and your request for{' '}
+              <span className="text-cream">{form.service || 'a service'}</span> on{' '}
               <span className="text-cream">{form.date || 'your chosen date'}</span> at{' '}
-              <span className="text-cream">{form.time || 'your chosen time'}</span> has been
-              noted. We'll reach out on{' '}
-              <span className="text-gold-light">{form.phone || 'your number'}</span> to confirm
-              and share {form.paymentMethod === 'bank' ? 'bank details' : form.paymentMethod === 'momo' ? 'Mobile Money details' : 'next steps'} for
-              your booking fee.
+              <span className="text-cream">{form.time || 'your chosen time'}</span> is booked. We'll
+              reach out on <span className="text-gold-light">{form.phone || 'your number'}</span> to
+              confirm details and, on the day, settle the rest via{' '}
+              {form.paymentMethod === 'bank'
+                ? 'bank transfer'
+                : form.paymentMethod === 'momo'
+                  ? 'Mobile Money'
+                  : 'cash'}
+              .
             </p>
             <button
               onClick={handleClose}
@@ -329,7 +380,7 @@ setSubmitted(true)
               )}
             </Field>
 
-            <Field label="Payment Method" required>
+            <Field label="Remaining Balance — Payment Method" required>
               <div className="flex flex-col gap-2.5">
                 {PAYMENT_METHODS.map((method) => (
                   <label
@@ -354,9 +405,58 @@ setSubmitted(true)
                 ))}
               </div>
               <p className="mt-2 text-xs text-muted">
-                Full bank and Mobile Money details are shared once your booking is confirmed.
+                This is how you'll settle the rest of the cost on the day. Full
+                bank details are shared once your booking is confirmed.
               </p>
             </Field>
+
+            {form.paymentMethod === 'momo' && (
+              <Field label="Your Mobile Money Number" required>
+                <input
+                  required
+                  type="tel"
+                  value={form.momoNumber}
+                  onChange={(e) => update('momoNumber', e.target.value)}
+                  placeholder="024 000 0000"
+                  className="input"
+                />
+              </Field>
+            )}
+
+            {form.paymentMethod === 'bank' && (
+              <div className="grid sm:grid-cols-2 gap-5">
+                <Field label="Your Bank Name" required>
+                  <input
+                    required
+                    type="text"
+                    value={form.bankName}
+                    onChange={(e) => update('bankName', e.target.value)}
+                    placeholder="e.g. GCB Bank"
+                    className="input"
+                  />
+                </Field>
+                <Field label="Your Account Number" required>
+                  <input
+                    required
+                    type="text"
+                    inputMode="numeric"
+                    value={form.accountNumber}
+                    onChange={(e) => update('accountNumber', e.target.value)}
+                    placeholder="0000000000"
+                    className="input"
+                  />
+                </Field>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-gold/40 bg-gold/10 px-4 py-3.5">
+              <p className="text-sm text-cream">
+                <span className="font-semibold text-gold-light">{DEPOSIT_AMOUNT_LABEL} booking deposit</span> is
+                required now to secure your slot — this is non-refundable and
+                goes toward your total cost. You'll pay it next via card or
+                Mobile Money.
+              </p>
+            </div>
 
             <Field label="Notes (optional)">
               <textarea
@@ -379,7 +479,7 @@ setSubmitted(true)
               disabled={submitting}
               className="mt-2 w-full py-4 rounded-full bg-gold-foil text-ink text-sm font-semibold uppercase tracking-[0.16em] hover:shadow-[0_0_28px_rgba(201,162,75,0.35)] transition-shadow disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:shadow-none"
             >
-              {submitting ? 'Sending…' : 'Confirm Booking Request'}
+              {submitting ? 'Opening secure payment…' : `Pay ${DEPOSIT_AMOUNT_LABEL} Deposit & Book`}
             </button>
           </form>
         )}

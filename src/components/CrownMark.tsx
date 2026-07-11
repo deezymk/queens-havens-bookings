@@ -2,11 +2,7 @@ type CrownMarkProps = {
   className?: string
 }
 
-/**
- * The Queens Haven signature mark — a single crown glyph echoing the brand
- * logo, used sparingly as a section divider instead of generic numbering
- * or rules. Sits inline within a hairline so it reads like a wax seal.
- */
+
 export default function CrownMark({ className = '' }: CrownMarkProps) {
   return (
     <svg
