@@ -23,7 +23,7 @@ export default function About() {
           </div>
 
           <blockquote className="font-display text-3xl sm:text-4xl leading-[1.2] text-cream text-balance">
-            <span className="text-gold-light italic">Four years.</span>
+            <span className="text-gold-light italic">Twos years.</span>
             <br />
             One obsession:
             <br />
