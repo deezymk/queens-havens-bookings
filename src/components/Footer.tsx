@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import CrownMark from './CrownMark'
 
 const SOCIALS = [
@@ -60,11 +61,21 @@ export default function Footer() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto mt-12 pt-6 border-t border-ink-line/60 flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div className="max-w-6xl mx-auto mt-12 pt-6 border-t border-ink-line/60 flex flex-col sm:flex-row justify-between items-center gap-3">
         <p className="text-xs text-muted/70">
           © {new Date().getFullYear()} Queens Haven. Dawhenya, Tema 25.
         </p>
-        <p className="text-xs text-muted/70">Boldly Beautiful, one appointment at a time.</p>
+        <div className="flex items-center gap-4">
+          <Link to="/privacy-policy" className="text-xs text-muted/70 hover:text-gold-light transition-colors">
+            Privacy Policy
+          </Link>
+          <Link to="/terms-of-service" className="text-xs text-muted/70 hover:text-gold-light transition-colors">
+            Terms of Service
+          </Link>
+          <Link to="/refund-policy" className="text-xs text-muted/70 hover:text-gold-light transition-colors">
+            Refund Policy
+          </Link>
+        </div>
       </div>
     </footer>
   )
