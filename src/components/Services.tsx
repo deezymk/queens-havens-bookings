@@ -25,7 +25,7 @@ const SERVICES: Service[] = [
   {
     name: 'Lash Extensions',
     description: 'Full sets isolated lash by lash for a natural-to-dramatic finish that actually lasts.',
-    note: 'Approx. 2 hours per set',
+    note: 'Approx. 1 hours per set',
   },
   {
     name: 'Pedicure',
