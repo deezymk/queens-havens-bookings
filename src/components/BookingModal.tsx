@@ -96,75 +96,58 @@ export default function BookingModal({ isOpen, onClose, initialService }: Bookin
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const finalizeBooking = async (depositReference: string) => {
-    const client = supabase
-
-    if (!client) {
-      throw new Error('Supabase is not configured.')
-    }
-
-    let inspoUrl: string | null = null
-
-    if (inspoFile) {
-      const fileExt = inspoFile.name.split('.').pop()
-      const filePath = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
-
-      const { error: uploadError } = await client.storage.from(INSPO_BUCKET).upload(filePath, inspoFile)
-
-      if (uploadError) throw uploadError
-
-      const { data: publicUrlData } = client.storage.from(INSPO_BUCKET).getPublicUrl(filePath)
-
-      inspoUrl = publicUrlData.publicUrl
-    }
-
-    const bookingRecord = {
-      name: form.name,
-      email: form.email || null,
-      phone: form.phone,
-      service: form.service,
-      preferred_date: form.date,
-      preferred_time: form.time,
-      payment_method: form.paymentMethod,
-      momo_number: form.paymentMethod === 'momo' ? form.momoNumber : null,
-      bank_name: form.paymentMethod === 'bank' ? form.bankName : null,
-      account_number: form.paymentMethod === 'bank' ? form.accountNumber : null,
-      notes: form.notes || null,
-      inspo_url: inspoUrl,
-      deposit_paid: true,
-      deposit_reference: depositReference,
-    }
-
-    const { error: insertError } = await client.from('bookings').insert(bookingRecord)
-
-    if (insertError) throw insertError
-
-    client.functions
-      .invoke('swift-action', { body: { record: bookingRecord } })
-      .catch((err) => console.error('notify-booking call failed:', err))
-
-    setSubmitted(true)
-  }
-
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setErrorMsg(null)
-    setSubmitting(true)
 
-    
-    const paystackEmail =
-      form.email || `${form.phone.replace(/\D/g, '') || 'guest'}@guest.queenshaven.app`
+    const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
+    if (!supabase || !paystackKey) {
+      setErrorMsg('Bookings are unavailable right now. Please try again shortly.')
+      return
+    }
+
+    const db = supabase
+    setSubmitting(true)
 
     const reference = `QH-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-    const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
+    try {
+      let inspoUrl: string | null = null
+      if (inspoFile) {
+        const ext = inspoFile.name.split('.').pop()
+        const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+        const { error: upErr } = await db.storage.from(INSPO_BUCKET).upload(path, inspoFile)
+        if (upErr) throw upErr
+        inspoUrl = db.storage.from(INSPO_BUCKET).getPublicUrl(path).data.publicUrl
+      }
 
-    if (!paystackKey) {
-      console.error('VITE_PAYSTACK_PUBLIC_KEY is not set.')
-      setErrorMsg('Payments are currently unavailable. Please try again shortly.')
+      const { error: insErr } = await db.from('bookings').insert({
+        name: form.name,
+        email: form.email || null,
+        phone: form.phone,
+        service: form.service,
+        preferred_date: form.date,
+        preferred_time: form.time,
+        payment_method: form.paymentMethod,
+        momo_number: form.paymentMethod === 'momo' ? form.momoNumber : null,
+        bank_name: form.paymentMethod === 'bank' ? form.bankName : null,
+        account_number: form.paymentMethod === 'bank' ? form.accountNumber : null,
+        notes: form.notes || null,
+        inspo_url: inspoUrl,
+        deposit_paid: false,
+        deposit_reference: reference,
+      })
+
+      if (insErr) throw insErr
+    } catch (err) {
+      console.error('Could not save booking:', err)
+      setErrorMsg('We could not save your booking, so no payment was taken. Please try again.')
       setSubmitting(false)
       return
     }
+
+    const paystackEmail =
+      form.email || `${form.phone.replace(/\D/g, '') || 'guest'}@guest.queenshaven.app`
 
     const handler = PaystackPop.setup({
       key: paystackKey,
@@ -178,20 +161,11 @@ export default function BookingModal({ isOpen, onClose, initialService }: Bookin
           { display_name: 'Service', variable_name: 'service', value: form.service },
         ],
       },
-      callback: (response) => {
-        finalizeBooking(response.reference)
-          .catch((err) => {
-            console.error('Booking submission failed after payment:', err)
-            setErrorMsg(
-              'Your deposit went through, but saving your booking failed. Please contact us directly on Instagram/TikTok with your payment reference: ' +
-                response.reference,
-            )
-          })
-          .finally(() => setSubmitting(false))
-      },
-      onClose: () => {
+      callback: () => {
+        setSubmitted(true)
         setSubmitting(false)
       },
+      onClose: () => setSubmitting(false),
     })
 
     handler.openIframe()
